@@ -1,24 +1,33 @@
-// Vercel serverless function — proxies Polymarket API to avoid CORS
-export default async function handler(req, res) {
-  const { path } = req.query;
-  if (!path) return res.status(400).json({ error: "Missing path" });
+// Vercel serverless function — proxies Polymarket API to bypass CORS
+module.exports = async function handler(req, res) {
+  // Handle CORS preflight
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.status(200).end();
 
-  const url = `https://gamma-api.polymarket.com/${path}`;
+  const { path } = req.query;
+  if (!path) return res.status(400).json({ error: "Missing path param" });
+
+  const decoded = decodeURIComponent(path);
+  const url = `https://gamma-api.polymarket.com/${decoded}`;
 
   try {
     const upstream = await fetch(url, {
       headers: {
         "Accept": "application/json",
-        "User-Agent": "polymarket-monitor/1.0",
+        "User-Agent": "Mozilla/5.0 (compatible; polymarket-monitor/1.0)",
       },
     });
 
-    const data = await upstream.json();
+    if (!upstream.ok) {
+      return res.status(upstream.status).json({ error: `Upstream error ${upstream.status}` });
+    }
 
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    const data = await upstream.json();
     res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");
-    res.status(upstream.status).json(data);
+    return res.status(200).json(data);
   } catch (err) {
-    res.status(502).json({ error: "Upstream fetch failed", detail: err.message });
+    return res.status(502).json({ error: "Upstream fetch failed", detail: err.message });
   }
-}
+};
